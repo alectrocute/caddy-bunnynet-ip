@@ -1,4 +1,4 @@
-# trusted_proxy module for bunny.net
+# trusted_proxies module for bunny.net
 
 This module retrieves bunny.net CDN IP addresses from their [/mc/nodes/plain](https://api.bunny.net/mc/nodes/plain) API endpoint.
 
@@ -9,9 +9,13 @@ Note: IPv6 is not currently supported by bunny.net as of April 2026. This module
 Put following config in global options under corresponding server options:
 
 ```
-trusted_proxies bunnynet {
-    interval 12h
-    timeout 15s
+https://demo.acme.sh {
+  reverse_proxy :8080 {
+    trusted_proxies bunnynet {
+      interval 12h
+      timeout 15s
+    }
+  }
 }
 ```
 
