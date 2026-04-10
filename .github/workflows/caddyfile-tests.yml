@@ -1,4 +1,4 @@
-name: caddyfile tests
+name: caddyfile tests 
 
 on:
   push:
