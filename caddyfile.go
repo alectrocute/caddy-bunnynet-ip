@@ -1,10 +1,12 @@
-package caddy_cloudflare_ip
+package caddy_bunnynet_ip
 
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,16 +16,18 @@ import (
 )
 
 const (
-	ipv4 = "https://www.cloudflare.com/ips-v4"
-	ipv6 = "https://www.cloudflare.com/ips-v6"
+	bunnyIPv4 = "https://api.bunny.net/mc/nodes/plain"
+	// bunny.net currently doesn't support ipv6
+	// but let's plan on someday supporting it
+	bunnyIPv6 = ""
 )
 
 func init() {
-	caddy.RegisterModule(CloudflareIPRange{})
+	caddy.RegisterModule(BunnyIPRange{})
 }
 
-// CloudflareIPRange provides a range of IP address prefixes (CIDRs) retrieved from cloudflare.
-type CloudflareIPRange struct {
+// BunnyIPRange provides a range of IP address prefixes (CIDRs) retrieved from bunny.net.
+type BunnyIPRange struct {
 	// refresh Interval
 	Interval caddy.Duration `json:"interval,omitempty"`
 	// request Timeout
@@ -37,22 +41,46 @@ type CloudflareIPRange struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (CloudflareIPRange) CaddyModule() caddy.ModuleInfo {
+func (BunnyIPRange) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.ip_sources.cloudflare",
-		New: func() caddy.Module { return new(CloudflareIPRange) },
+		ID:  "http.ip_sources.bunnynet",
+		New: func() caddy.Module { return new(BunnyIPRange) },
 	}
 }
 
 // getContext returns a cancelable context, with a timeout if configured.
-func (s *CloudflareIPRange) getContext() (context.Context, context.CancelFunc) {
+func (s *BunnyIPRange) getContext() (context.Context, context.CancelFunc) {
 	if s.Timeout > 0 {
 		return context.WithTimeout(s.ctx, time.Duration(s.Timeout))
 	}
 	return context.WithCancel(s.ctx)
 }
 
-func (s *CloudflareIPRange) fetch(api string) ([]netip.Prefix, error) {
+func parseBunnyNode(line string) (netip.Prefix, error) {
+	text := strings.TrimSpace(line)
+	if text == "" {
+		return netip.Prefix{}, fmt.Errorf("empty line")
+	}
+
+	// Keep compatibility with CIDR input, while supporting Bunny's plain IP format.
+	prefix, err := caddyhttp.CIDRExpressionToPrefix(text)
+	if err == nil {
+		return prefix, nil
+	}
+
+	addr, parseErr := netip.ParseAddr(text)
+	if parseErr != nil {
+		return netip.Prefix{}, err
+	}
+
+	return netip.PrefixFrom(addr, addr.BitLen()), nil
+}
+
+func (s *BunnyIPRange) fetch(api string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(api) == "" {
+		return nil, nil
+	}
+
 	ctx, cancel := s.getContext()
 	defer cancel()
 
@@ -66,30 +94,36 @@ func (s *CloudflareIPRange) fetch(api string) ([]netip.Prefix, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status from %s: %s", api, resp.Status)
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	var prefixes []netip.Prefix
 	for scanner.Scan() {
-		prefix, err := caddyhttp.CIDRExpressionToPrefix(scanner.Text())
+		prefix, err := parseBunnyNode(scanner.Text())
 		if err != nil {
 			return nil, err
 		}
 		prefixes = append(prefixes, prefix)
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
 	return prefixes, nil
 }
 
-func (s *CloudflareIPRange) getPrefixes() ([]netip.Prefix, error) {
+func (s *BunnyIPRange) getPrefixes() ([]netip.Prefix, error) {
 	var fullPrefixes []netip.Prefix
 	// fetch ipv4 list
-	prefixes, err := s.fetch(ipv4)
+	prefixes, err := s.fetch(bunnyIPv4)
 	if err != nil {
 		return nil, err
 	}
 	fullPrefixes = append(fullPrefixes, prefixes...)
 
 	// fetch ipv6 list
-	prefixes, err = s.fetch(ipv6)
+	prefixes, err = s.fetch(bunnyIPv6)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +132,7 @@ func (s *CloudflareIPRange) getPrefixes() ([]netip.Prefix, error) {
 	return fullPrefixes, nil
 }
 
-func (s *CloudflareIPRange) Provision(ctx caddy.Context) error {
+func (s *BunnyIPRange) Provision(ctx caddy.Context) error {
 	s.ctx = ctx
 	s.lock = new(sync.RWMutex)
 
@@ -107,7 +141,7 @@ func (s *CloudflareIPRange) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func (s *CloudflareIPRange) refreshLoop() {
+func (s *BunnyIPRange) refreshLoop() {
 	if s.Interval == 0 {
 		s.Interval = caddy.Duration(time.Hour)
 	}
@@ -136,7 +170,7 @@ func (s *CloudflareIPRange) refreshLoop() {
 	}
 }
 
-func (s *CloudflareIPRange) GetIPRanges(_ *http.Request) []netip.Prefix {
+func (s *BunnyIPRange) GetIPRanges(_ *http.Request) []netip.Prefix {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.ranges
@@ -144,11 +178,11 @@ func (s *CloudflareIPRange) GetIPRanges(_ *http.Request) []netip.Prefix {
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 //
-//	cloudflare {
+//	bunnynet {
 //	   interval val
 //	   timeout val
 //	}
-func (m *CloudflareIPRange) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (m *BunnyIPRange) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // Skip module name.
 
 	// No same-line options are supported
@@ -186,8 +220,8 @@ func (m *CloudflareIPRange) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // interface guards
 var (
-	_ caddy.Module            = (*CloudflareIPRange)(nil)
-	_ caddy.Provisioner       = (*CloudflareIPRange)(nil)
-	_ caddyfile.Unmarshaler   = (*CloudflareIPRange)(nil)
-	_ caddyhttp.IPRangeSource = (*CloudflareIPRange)(nil)
+	_ caddy.Module            = (*BunnyIPRange)(nil)
+	_ caddy.Provisioner       = (*BunnyIPRange)(nil)
+	_ caddyfile.Unmarshaler   = (*BunnyIPRange)(nil)
+	_ caddyhttp.IPRangeSource = (*BunnyIPRange)(nil)
 )
