@@ -19,5 +19,5 @@ trusted_proxies bunnynet {
 
 | Name     | Description                                 | Type     | Default    |
 |----------|---------------------------------------------|----------|------------|
-| interval | How often cloudflare ip lists are retrieved | duration | 1h         |
+| interval | How often lists are retrieved               | duration | 1h         |
 | timeout  | Maximum time to wait to get a response      | duration | no timeout |
