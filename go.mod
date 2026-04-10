@@ -1,4 +1,4 @@
-module github.com/alectrocute/caddy-bunnynet-ip
+module github.com/alectrocute/caddy-bunnynet-ip 
 
 go 1.20
 
