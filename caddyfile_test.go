@@ -1,7 +1,8 @@
-package caddy_cloudflare_ip
+package caddy_bunnynet_ip
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -10,14 +11,14 @@ import (
 )
 
 func TestDefault(t *testing.T) {
-	testDefault(t, `cloudflare`)
-	testDefault(t, `cloudflare { }`)
+	testDefault(t, `bunnynet`)
+	testDefault(t, `bunnynet { }`)
 }
 
 func testDefault(t *testing.T, input string) {
 	d := caddyfile.NewTestDispenser(input)
 
-	r := CloudflareIPRange{}
+	r := BunnyIPRange{}
 	err := r.UnmarshalCaddyfile(d)
 	if err != nil {
 		t.Errorf("unmarshal error for %q: %v", input, err)
@@ -34,14 +35,14 @@ func testDefault(t *testing.T, input string) {
 
 func TestUnmarshal(t *testing.T) {
 	input := `
-	cloudflare {
+	bunnynet {
 		interval 1.5h
 		timeout 30s
 	}`
 
 	d := caddyfile.NewTestDispenser(input)
 
-	r := CloudflareIPRange{}
+	r := BunnyIPRange{}
 	err := r.UnmarshalCaddyfile(d)
 	if err != nil {
 		t.Errorf("unmarshal error: %v", err)
@@ -61,7 +62,7 @@ func TestUnmarshal(t *testing.T) {
 // Simulates being nested in another block.
 func TestUnmarshalNested(t *testing.T) {
 	input := `{
-				cloudflare {
+				bunnynet {
 					interval 1.5h
 					timeout 30s
 				}
@@ -74,7 +75,7 @@ func TestUnmarshalNested(t *testing.T) {
 	d.Next()
 	d.NextBlock(d.Nesting())
 
-	r := CloudflareIPRange{}
+	r := BunnyIPRange{}
 	err := r.UnmarshalCaddyfile(d)
 	if err != nil {
 		t.Errorf("unmarshal error: %v", err)
@@ -94,4 +95,37 @@ func TestUnmarshalNested(t *testing.T) {
 	if d.Val() != "other_module" {
 		t.Errorf("cursor at unexpected position, expected 'other_module', got %v", d.Val())
 	}
+}
+
+func TestParseBunnyNode(t *testing.T) {
+	t.Run("plain IPv4", func(t *testing.T) {
+		prefix, err := parseBunnyNode("104.166.147.46")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := netip.MustParsePrefix("104.166.147.46/32")
+		if prefix != expected {
+			t.Fatalf("expected %v, got %v", expected, prefix)
+		}
+	})
+
+	t.Run("CIDR still supported", func(t *testing.T) {
+		prefix, err := parseBunnyNode("173.245.48.0/20")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := netip.MustParsePrefix("173.245.48.0/20")
+		if prefix != expected {
+			t.Fatalf("expected %v, got %v", expected, prefix)
+		}
+	})
+
+	t.Run("invalid input", func(t *testing.T) {
+		_, err := parseBunnyNode("not-an-ip")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
 }
