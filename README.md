@@ -2,7 +2,7 @@
 
 This module retrieves bunny.net CDN IP addresses from their [/mc/nodes/plain](https://api.bunny.net/mc/nodes/plain) API endpoint.
 
-Note: IPv6 is not currently supported by bunny.net as of August 2026. This module is supported from Caddy v2.6.3 onwards.
+Note: IPv6 is not currently supported by bunny.net as of April 2026. This module is supported from Caddy v2.6.3 onwards.
 
 # Example config
 
